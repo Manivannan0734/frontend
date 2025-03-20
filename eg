@@ -1,0 +1,66 @@
+@app.route("/api/etf_data", methods=["GET"])
+def get_etf_data():
+    try:
+        date_param = request.args.get('date', None)
+        
+        if date_param:
+            # Convert date from YYYY-MM-DD to YYYYMMDD format
+            formatted_date = date_param.replace("-", "")
+        else:
+            return jsonify({"error": "Date parameter is required."}), 400
+        
+        conn = psycopg2.connect(**DATABASE_SETTINGS)
+        cursor = conn.cursor()
+
+        # Query to get ETF details
+        etf_query = """
+            SELECT etf_code, etf_name, fund_cash_component, shares_outstanding, fund_date
+            FROM etf_details
+            WHERE fund_date = %s
+            ORDER BY etf_code
+        """
+        cursor.execute(etf_query, (formatted_date,))
+        etf_rows = cursor.fetchall()
+
+        etf_data = []
+        for etf_row in etf_rows:
+            etf_code = etf_row[0]
+
+            # Query to get stock details for each ETF
+            stock_query = """
+                SELECT stock_code, stock_name, isin, exchange, currency, shares_amount, stock_price
+                FROM stock_details
+                WHERE etf_code = %s
+                ORDER BY stock_code
+            """
+            cursor.execute(stock_query, (etf_code,))
+            stock_rows = cursor.fetchall()
+
+            # Format data
+            etf_data.append({
+                "etf_code": etf_row[0],
+                "etf_name": etf_row[1],
+                "fund_cash_component": etf_row[2],
+                "shares_outstanding": etf_row[3],
+                "fund_date": etf_row[4],
+                "stocks": [
+                    {
+                        "stock_code": stock_row[0],
+                        "stock_name": stock_row[1],
+                        "isin": stock_row[2],
+                        "exchange": stock_row[3],
+                        "currency": stock_row[4],
+                        "shares_amount": stock_row[5],
+                        "stock_price": stock_row[6]
+                    }
+                    for stock_row in stock_rows
+                ]
+            })
+
+        cursor.close()
+        conn.close()
+        return jsonify(etf_data)
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
